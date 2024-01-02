@@ -24,13 +24,14 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -40,38 +41,42 @@ import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun DrawingScreen() {
+fun DrawingScreen(
+    viewModel: DrawingViewModel
+) {
     Column(
         modifier = Modifier
             .fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        DrawingCanvas()
+        DrawingCanvas(
+            viewModel = viewModel
+        )
     }
 }
 
 @Composable
-fun DrawingCanvas() {
+fun DrawingCanvas(
+    viewModel: DrawingViewModel
+) {
     var point by remember { mutableStateOf(Offset.Zero) } // point 위치 추적을 위한 State
     val points = remember { mutableListOf<Offset>() } // 새로 그려지는 path 표시하기 위한 points State
 
     var path by remember { mutableStateOf(Path()) } // 새로 그려지고 있는 중인 획 State
-    val paths = remember { mutableStateListOf<Pair<Path, PathStyle>>() } // 다 그려진 획 리스트 State
 
-    val removedPaths = remember { mutableStateListOf<Pair<Path, PathStyle>>() }
-
-    val pathStyle = PathStyle()
+    val paths by viewModel.paths.observeAsState()
+    val pathStyle by viewModel.pathStyle.observeAsState()
 
     Canvas(
         modifier = Modifier
             .size(360.dp)
             .background(Color.White)
             .aspectRatio(1.0f)
+            .clipToBounds()
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
@@ -92,7 +97,7 @@ fun DrawingCanvas() {
                         }
                     },
                     onDragEnd = {
-                        paths.add(Pair(path, pathStyle.copy()))
+                        viewModel.addPath(Pair(path, pathStyle!!.copy()))
                         points.clear()
 
                         path = Path()
@@ -100,7 +105,7 @@ fun DrawingCanvas() {
                 )
             },
     ) {
-        paths.forEach { pair ->
+        paths?.forEach { pair ->
             drawPath(
                 path = pair.first,
                 style = pair.second
@@ -109,7 +114,7 @@ fun DrawingCanvas() {
 
         drawPath(
             path = path,
-            style = pathStyle
+            style = pathStyle!!
         )
     }
 
@@ -120,26 +125,20 @@ fun DrawingCanvas() {
         horizontalArrangement = Arrangement.Center
     ) {
         DrawingUndoButton {
-            if (paths.isEmpty()) return@DrawingUndoButton
-            // Ctrl + Z
-            val lastPath = paths.removeLast()
-            removedPaths.add(lastPath)
+            viewModel.undoPath()
         }
 
         Spacer(modifier = Modifier.width(24.dp))
 
         DrawingRedoButton {
-            if (removedPaths.isEmpty()) return@DrawingRedoButton
-            // Ctrl + Shift + Z
-            val lastRemovedPath = removedPaths.removeLast()
-            paths.add(lastRemovedPath)
+           viewModel.redoPath()
         }
     }
     // 획 스타일 조절하는 영역
     DrawingStyleArea(
-        onSizeChanged = { pathStyle.width = it },
-        onColorChanged = { pathStyle.color = it },
-        onAlphaChanged = { pathStyle.alpha = it }
+        onSizeChanged = { viewModel.updateWidth(it) },
+        onColorChanged = { viewModel.updateColor(it) },
+        onAlphaChanged = { viewModel.updateAlpha(it) }
     )
 }
 
@@ -234,7 +233,8 @@ fun DrawingColorPalette(
     val colors = listOf(Color.Black, Color.Red, Color.Green, Color.Blue, Color.Magenta, Color.Yellow)
 
     Row(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
             .padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -264,12 +264,6 @@ fun DrawingColorPalette(
             }
         }
     }
-}
-
-@Preview
-@Composable
-fun Preview_DrawingScreen() {
-    DrawingScreen()
 }
 
 internal fun DrawScope.drawPath(
